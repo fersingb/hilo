@@ -67,7 +67,6 @@ from .const import (
     WEATHER_CONDITIONS,
 )
 from .managers import EnergyManager, UtilityManager
-from custom_components import hilo
 
 WIFI_STRENGTH = {
     "Low": 1,
@@ -812,7 +811,7 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
         """Handle challenge detail updates."""
         LOG.debug(f"ic-dev21 handle_challenge_details_update {challenge}")
         challenge = challenge[0] if isinstance(challenge, list) else challenge
-        event_id = challenge.get("id")
+        event_id = challenge.get("id", None)
 
         # In case we get a consumption update (there is no event id)
         if event_id is None:
@@ -838,9 +837,13 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
                 del self._events[event_id]
 
             # Consumption update
-            elif used_wH > 0:
+            elif used_wH is not None and used_wH > 0:
                 current_event = self._events[event_id]
+                LOG.debug(f"UPDATING KWH for {current_event.as_dict()}")
+                # current_event.update_wh(used_wH)
                 current_event.update_wh(used_wH)
+                LOG.debug(f"UPDATED KWH for {current_event.as_dict()}")
+
             else:
                 current_event = self._events[event_id]
                 updated_event = Event(**{**current_event.as_dict(), **challenge})
@@ -900,6 +903,7 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        LOG.debug(f"NEXT EVENTS CONTENT: {self._next_events}")
         return {"next_events": self._next_events}
 
     async def async_added_to_hass(self):

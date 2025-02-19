@@ -50,6 +50,8 @@ from pyhilo.oauth2 import AuthCodeWithPKCEImplementation
 from pyhilo.util import from_utc_timestamp, time_diff
 from pyhilo.websocket import WebsocketEvent
 
+from custom_components.hilo.test_challenges import HiloTest
+
 from .config_flow import STEP_OPTION_SCHEMA, HiloFlowHandler
 from .const import (
     CONF_APPRECIATION_PHASE,
@@ -269,6 +271,10 @@ class Hilo:
             self._api._get_device_callbacks = [self._get_unknown_source_tracker]
         self._websocket_listeners = []
 
+        hilotest = HiloTest()
+
+        self.test_events = hilotest.get_test_events()
+
     def validate_heartbeat(self, event: WebsocketEvent) -> None:
         heartbeat_time = from_utc_timestamp(event.arguments[0])  # type: ignore
         if self._api.log_traces:
@@ -319,7 +325,7 @@ class Hilo:
                     else:
                         await handler(msg_data)
                 except Exception as e:
-                    LOG.error(f"Error in websocket handler {handler_name}: {e}")
+                    LOG.error(f"Error in websocket handler {handler_name}: {repr(e)}")
 
     async def _handle_challenge_events(self, event: WebsocketEvent) -> None:
         """Handle all challenge-related websocket events."""
@@ -469,11 +475,15 @@ class Hilo:
         LOG.debug(
             f"Requesting challenge {event_id} consumption update at location {self.devices.location_id}"
         )
-        await self._api.websocket_challenges.async_invoke(
-            [{"locationId": self.devices.location_id, "eventId": event_id}],
-            "RequestChallengeConsumptionUpdate",
-            inv_id,
-        )
+        # await self._api.websocket_challenges.async_invoke(
+        #     [{"locationId": self.devices.location_id, "eventId": event_id}],
+        #     "RequestChallengeConsumptionUpdate",
+        #     inv_id,
+        # )
+
+        test_event = self.test_events[1]
+        LOG.debug(f"SENDING TEST EVENT: {test_event}")
+        await self._handle_websocket_message(test_event)
 
     @callback
     async def request_status_update(self) -> None:
