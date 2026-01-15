@@ -899,6 +899,7 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
         self.scan_interval = timedelta(seconds=EVENT_SCAN_INTERVAL_REDUCTION)
         self._state = "off"
         self._next_events = []
+        self._current_event = None
         self._events = {}  # Store active events
         self.async_update = Throttle(timedelta(seconds=MIN_SCAN_INTERVAL))(
             self._async_update
@@ -981,6 +982,7 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
         challenge = challenge[0] if isinstance(challenge, list) else challenge
         event_id = challenge.get("id")
         event_has_id = event_id is not None
+        last_consumption_datetime = None
 
         # In case we get a consumption update (there is no event id),
         # get the event id of the next event so that we can update it
@@ -990,10 +992,12 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
         progress = challenge.get("progress", "unknown")
 
         baseline_points = challenge.get("cumulativeBaselinePoints", [])
+        consumption_points = challenge.get("cumulativeConsumptionPoints", [])
 
         if not baseline_points:
             consumption = challenge.get("consumption", {})
             baseline_points = consumption.get("cumulativeBaselinePoints", [])
+            consumption_points = consumption.get("cumulativeConsumptionPoints", [])
         if baseline_points:
             baselinewH = baseline_points[-1]["wh"]
         else:
@@ -1006,10 +1010,18 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
         else:
             used_kWh = 0
 
+        if consumption_points:
+            last_consumption_time = consumption_points[-1]["timeUTC"]
+            last_consumption_datetime = datetime.fromisoformat(last_consumption_time)
+
         LOG.debug("handle_challenge_details_update progress is %s", progress)
         LOG.debug("handle_challenge_details_update baselineWh is %s", baselinewH)
         LOG.debug("handle_challenge_details_update used_kwh is %s", used_kWh)
         LOG.debug("handle_challenge_details_update allowed_kwh is %s", allowed_kwh)
+        LOG.debug(
+            "handle_challenge_details_update last_consumption_time is %s",
+            last_consumption_datetime,
+        )
 
         if event_id in self._events:
             if challenge.get("progress") == "completed":
@@ -1017,9 +1029,20 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
                 await asyncio.sleep(300)
                 del self._events[event_id]
 
+            if (
+                last_consumption_datetime
+                and self._events[event_id].preheat_start > last_consumption_datetime
+            ):
+                LOG.debug(
+                    "BORIS: Skipping consumption update before preheat_start: %s, %s",
+                    last_consumption_datetime,
+                    self._events[event_id].as_dict(),
+                )
+                return
             # Consumption update
             elif used_wH is not None and used_wH > 0:
                 current_event = self._events[event_id]
+
                 current_event.update_wh(used_wH)
                 if baselinewH > 0:
                     current_event.update_allowed_wh(baselinewH)
@@ -1053,9 +1076,22 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
     def state(self):
         """Return the current state based on next events."""
         if len(self._next_events) > 0:
-            event = Event(**{**{"id": 0}, **self._next_events[0]})
+            event = self._get_current_event()
             return event.state
+
+        self._current_event = None
         return "off"
+
+    def _get_current_event(self):
+        """Return the current active event, if any."""
+        if self._current_event:
+            return self._current_event
+
+        if len(self._next_events) > 0:
+            self._current_event = Event(**{**{"id": 0}, **self._next_events[0]})
+            return self._current_event
+
+        return None
 
     @property
     def icon(self):
