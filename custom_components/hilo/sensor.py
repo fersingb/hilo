@@ -899,6 +899,7 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
         self.scan_interval = timedelta(seconds=EVENT_SCAN_INTERVAL_REDUCTION)
         self._state = "off"
         self._next_events = []
+        self._current_event = None
         self._events = {}  # Store active events
         self.async_update = Throttle(timedelta(seconds=MIN_SCAN_INTERVAL))(
             self._async_update
@@ -1053,9 +1054,22 @@ class HiloChallengeSensor(HiloEntity, SensorEntity):
     def state(self):
         """Return the current state based on next events."""
         if len(self._next_events) > 0:
-            event = Event(**{**{"id": 0}, **self._next_events[0]})
+            event = self._get_current_event()
             return event.state
+
+        self._current_event = None
         return "off"
+
+    def _get_current_event(self):
+        """Return the current active event, if any."""
+        if self._current_event:
+            return self._current_event
+
+        if len(self._next_events) > 0:
+            self._current_event = Event(**{**{"id": 0}, **self._next_events[0]})
+            return self._current_event
+
+        return None
 
     @property
     def icon(self):
